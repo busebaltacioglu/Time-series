@@ -1,0 +1,510 @@
+---
+title: "Zaman Serisi"
+author: "Buse Baltacıoğlu"
+date: "05 05 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Veri setini içe aktarma ve tanımlayıcı istatistikler
+ 
+```{r}
+library(readr)
+df <- read_csv("C:/Users/Casper/Desktop/DSM 5012 Uygulamalı Zaman Serisi Analizi/proje_1/WHI7-daily-data.csv", 
+               col_types = cols(SAMPLE_DAY = col_date(format = "%Y-%m-%d")))
+
+```
+
+```{r}
+dim(df)
+```
+Veri setimiz 8 değişken ve 1849 gözlemden oluşmaktadır.
+
+Bu uygulamada klorofil konsantrasyonlarının günlük ortalama değerleri incelenecektir.
+
+```{r}
+df %>% summarise(
+  min=min(CHL_QA_AVG),
+  ort=mean(CHL_QA_AVG),
+  max=max(CHL_QA_AVG),
+  sd=sd(CHL_QA_AVG)
+)
+
+```
+
+
+```{r}
+summary(df)
+```
+
+```{r}
+apply(df[,7], 2, sd)
+```
+Günlük ortalama klorofil seviyesi yaklaşık 0.26 ile 4.52 arasında 0.81 ortalamayla 0.33 standart sapmaya sahiptir.
+
+```{r}
+boxplot(df$CHL_QA_AVG, horizontal = TRUE  , col="bisque")
+```
+
+#Kullanılan R kütüphaneleri
+```{r}
+library(forecast)
+library(tseries)
+library(fpp2)
+library(lmtest)
+```
+
+#Zaman Serisi Analizi
+```{r}
+df_ts<-ts(data = df$CHL_QA_AVG,
+       start = c(2015, 07, 11),
+       end = c(2020, 10, 08),
+       frequency = 12)
+```
+
+```{r}
+df_ts
+```
+
+
+##Zaman Serisinin Bileşenleri
+```{r}
+autoplot(df_ts)+
+  ggtitle("Klorofil seviyesinin aylara göre değişimi")+
+  xlab("Aylar")+
+  ylab("Klorofil seviyesi")
+```
+Zaman serisi grafiğine baktığımızda;
+
+-Çok yavaş azalan bir trend bununla birlikte düzensiz bileşen içerdiği görülmektedir. Zaman serisindeki rastgele dalgalanmalar zaman içinde sabit gibi görünüyor, veriyi toplamsal model temsil edebilir.
+
+
+```{r}
+ggseasonplot(df_ts, year.labels=TRUE) +
+ylab("Klorofil Seviyesi") +
+xlab("Aylık") +
+ggtitle("Seasonal Plot: Klorofil Seviyesi")
+```
+Bu grafiktende anlaşılacağı gibi klorofil seviyesinde mevsimsel bileşen bulunmamaktadır.
+
+```{r}
+df_decomp<-decompose(df_ts)
+df_decomp$seasonal
+df_decomp$trend
+df_decomp$random
+```
+
+```{r}
+plot(df_decomp, xlab="Aylar")
+```
+
+#Düzleştirme teknikleri
+##Basit Üssel Düzeltme Yöntemi
+-Zaman serimizde hem trend hem de mevsimsellik bulunmadığı için basit üssel düzeltme yöntemi kullanımalıdır.
+```{r}
+(df_bes<-HoltWinters(df_ts, beta = FALSE, gamma = FALSE))
+```
+alpha=0.99 olarak tahminlenmektedir bu değer bire çok yakındır, tahminlerin son gözlemlere dayandığını söyler.
+
+```{r}
+plot(df_bes)
+```
+
+```{r}
+df_bes$SSE
+```
+
+```{r}
+(df_forecasts<-forecast(df_bes, h=12))
+```
+
+2015-2020 tahminlerini kullanarak 12 aylık ortalama klorofil seviyesi tahmini yaptığımızda;
+
+Örneğin; kasım 2020 için öngörülen ortalama klorofil seviyesi %95 güvenle yaklaşık 0.42 ile 0.70 arasında 0.56 mgL^(-1)'dir.
+
+
+```{r}
+plot(df_forecasts)
+```
+
+```{r}
+(bes_acc<-accuracy(forecast(df_bes, h=12)))
+```
+
+
+#Mevsimsel olmayan Otoregresif-Hareketli Ortalama Modelini ARMA (p, q) /ARIMA(p,d,q) tanımlama
+
+```{r}
+ggAcf(df_ts, lag.max = 100)+
+  ggtitle("Otokorelasyon Grafiği")
+```
+Orijinal değerlerin otokorelasyon grafiğine baktığımızda 2. gecikmeden sonra değerler hızlıca azalmış görülmektedir.
+
+```{r}
+ggPacf(df_ts, lag.max = 100)+
+  ggtitle("Kısmi Otokorelasyon Grafiği")
+```
+Orijinal değerlerin kısmi otokorelasyon grafiğine baktığımızda 2. geçikmeden sonra cutoff olduğu görülmektedir.
+
+```{r}
+df_diff1<-diff(df_ts, differences = 1)
+par(mfrow=c(1,2))
+plot.ts(df_ts, main = "Orijinal değerler")
+plot.ts(df_diff1, main = "1. dereceden fark alınmış değerler ")
+```
+1. dereceden farkı alınmış verilerin ortalamasının sıfır civarında, sabit varyanslı olduğunu ve orijinal verilerden daha az otokorelasyona sahip olduğu görülmektedir.
+
+```{r}
+ggAcf(df_diff1, lag.max = 100)+
+  ggtitle("Otokorelasyon Grafiği")
+```
+1. dereceden fark alınmış verilerin %95 güven düzeyinde, gecikme 1'den sonra otokorelasyonun anlamsız olduğunu söyleyebiliriz.
+
+```{r}
+ggPacf(df_diff1, lag.max = 100)+
+  ggtitle("Kısmi Otokorelasyon Grafiği")
+```
+1. dereceden fark alınmış verilerin %95 güven düzeyinde, 2 gecikmenin kısmi otokorelasyonlarının anlamlı (significant) olduğunu göstermektedir.
+
+Otokorelasyon grafiği, fark alınmış zaman serisi grafiği ile birlikte durağan olduğunu gösterir.
+
+##Zaman serisinde durağanlık testleri
+Zaman serilerinin durağanlığının incelenmesi için tseries kütüphanesi içerisindeki Augmented Dickey-Fuller (adf.test), Phillips–Perron birim kök testi (pp.test) ve Kwiatkowski-Phillips-Schmidt-Shin (KPSS) test (kpss.test) kullanılabilir.
+
+adf.test ve pp.test için:
+– H_0: Seri durağan değildir.
+– H_1: Seri durağandır.
+
+```{r}
+adf.test(df_ts)
+adf.test(df_diff1)
+```
+Augmented Dickey-Fuller testine göre;
+
+-Orijinal seri için p-value değeri 0.07 çıkmıştır. Bu değer 0.05'ten büyük olduğu için H_0 reddedilemez. Orijinal seri durağan değildir.
+
+-1. dereceden fark alınmış seri için p-value değeri 0.01 çıkmıştır. Bu değer 0.05'ten küçük olduğu için H_0 reddedilir. 1. dereceden farkı alınmış seri durağandır.
+
+
+```{r}
+pp.test(df_ts)
+pp.test(df_diff1)
+```
+Phillips–Perron birim kök testine göre;
+
+-Orijinal seri için p-value değeri 0.08 çıkmıştır. Bu değer 0.05'ten büyük olduğu için H_0 reddedilemez. Orijinal seri durağan değildir.
+
+-1. dereceden fark alınmış seri için p-value değeri 0.01 çıkmıştır. Bu değer 0.05'ten küçük olduğu için H_0 reddedilir. 1. dereceden farkı alınmış seri durağandır.
+
+
+
+kpss.test için:
+– H_0: Seri durağandır.
+– H_1: Seri durağan değildir.
+```{r}
+kpss.test(df_ts, null = "Trend")
+kpss.test(df_diff1, null = "Trend")
+```
+
+Kwiatkowski-Phillips-Schmidt-Shin göre;
+
+-Orijinal seri için p-value değeri 0.01 çıkmıştır. Bu değer 0.05'ten küçük olduğu için H_0 reddedilir. Orijinal seri durağandır.
+
+-1. dereceden fark alınmış seri için p-value değeri 0.01 çıkmıştır. Bu değer 0.05'ten küçük olduğu için H_0 reddedilir. 1. dereceden farkı alınmış seri durağandır.
+
+
+1. dereceden farkı alınmış verimiz 3 teste ve grafiğe göre durağan çıkmıştır.
+##Geçici modeller
+###ARI(p,d)
+```{r}
+(ari1<-arima(df_ts, order = c(1,1,0)))
+coeftest(ari1)
+```
+ARIMA(1,1,0) durağandır.
+
+```{r}
+(ari2<-arima(df_ts, order = c(2,1,0)))
+coeftest(ari2)
+```
+ARIMA(2,1,0) durağandır.
+
+
+###IMA(d,q)
+```{r}
+(ima1<-arima(df_ts, order = c(0,1,1)))
+coeftest(ima1)
+```
+ARIMA(0,1,1) çevrilebilirdir.
+
+```{r}
+(ima2<-arima(df_ts, order = c(0,1,2)))
+coeftest(ima2)
+```
+ARIMA(0,1,2) çevrilebilirdir, katsayılar kısmi anlamlı çıkmıştır.
+
+
+###ARIMA(p,d,q)
+```{r}
+(arima111<-arima(df_ts, order = c(1,1,1)))
+coeftest(arima111)
+```
+ARIMA(1,1,1) durağan ve çevrilebilirdir, katsayılar kısmi anlamlı çıkmıştır.
+
+```{r}
+(arima112<-arima(df_ts, order = c(1,1,2)))
+coeftest(arima112)
+```
+ARIMA(1,1,2) çevrilebilir değildir.
+
+```{r}
+(arima211<-arima(df_ts, order = c(2,1,1)))
+coeftest(arima211)
+```
+ARIMA(2,1,1) durağan değildir.
+
+```{r}
+(arima212<-arima(df_ts, order = c(2,1,2)))
+coeftest(arima212)
+```
+ARIMA(2,1,2) durağan ve çevrilebilirdir, katsayılar kısmi anlamlı çıkmıştır.
+
+##Aday modeller
+```{r}
+sse<-rbind(ari1$sigma2, ari2$sigma2, ima1$sigma2, ima2$sigma2, arima111$sigma2, arima212$sigma2)
+
+logl<-rbind(ari1$loglik, ari2$loglik, ima1$loglik, ima2$loglik, arima111$loglik, arima212$loglik)
+
+aic<-rbind(ari1$aic, ari2$aic, ima1$aic, ima2$aic, arima111$aic, arima212$aic)
+
+bic<-rbind(BIC(ari1), BIC(ari2), BIC(ima1), BIC(ima2), BIC(arima111), BIC(arima212))
+
+
+ic<-cbind(sse, logl, aic, bic)
+
+row.names(ic)<-c("(1,1,0)","(2,1,0)","(0,1,1)","(0,1,2)","(1,1,1)","(2,1,2)")
+
+colnames(ic)<-c("SSE", "LogLikelihood", "AIC", "BIC")
+
+ic
+```
+Modellerimizi bilgi kriterlerimize göre kıyasladığımızda;
+ARIMA(2,1,2) modeli SSE, Log Likelihood, AIC'de en iyi model çıkmıştır. BIC'e göre ARIMA(0,1,1) en iyi model çıkmıştır.
+
+##Auto.arima
+```{r}
+auto.arima(df_ts,
+           d=1,
+           ic = c("aicc", "aic", "bic"),
+           test = c("kpss", "adf", "pp"))
+```
+Auto.arima fonksiyonu ARIMA(0,1,1) modeline ve bilgi kriterleri göze önüne alıp ARIMA(2,1,2) modeline tanısal kontrol uygulamaya karar verdik.
+
+##Tanısal Kontrol
+
+###ARIMA(0,1,1)
+```{r}
+ima1
+```
+Modelimiz çevrilebilir.
+
+```{r}
+coeftest(ima1)
+```
+Modelimizin katsayısı anlamlıdır.
+
+####Artık analizi
+```{r}
+par(mfrow=c(1,2))
+hist(ima1$residuals, main = "Artıkların histogram grafiği", xlab = "ARIMA(0,1,1) modeline ait artıklar")
+qqnorm(ima1$residuals)
+```
+-Grafiğe baktığımızda artıkların normal dağıldığı görülmektedir yinede test edilmelidir.
+
+H_0: Artıklar normal dağılır.
+H_1: artıklar normal dağılmaz.
+```{r}
+shapiro.test(ima1$residuals)
+```
+0.7994>0.05 olduğu için H_0 reddedilemez. Artıklar normal dağılır.
+
+```{r}
+checkresiduals(ima1$residuals)
+```
+
+```{r}
+tsdiag(ima1)
+```
+-İlk grafiğe baktığımızda standartlaştırılmış artıkların rassal bir sürece sahip olduğu söyleyebiliriz yinede test yapılmalıdır.
+
+-İkinci grafiğe baktığımızda artıkların ototkorelasyona sahip olmadığını söyleyebiliriz.
+
+-Üçüncü garfiğe baktığımızda p-value'ların giderek azaldığını ve daha sonra tekrar arttığını söyleyebiliriz. 
+
+
+Box-Pierce (ve ya Ljung–Box) testi;
+H_0: Artıklar bağımsız olarak dağılır.
+H_1: Artıklar bağımsız olarak dağılmaz.
+
+```{r}
+Box.test(ima1$residuals, lag = 1)
+Box.test(ima1$residuals, lag = 6)
+Box.test(ima1$residuals, lag = 12)
+Box.test(ima1$residuals, lag = 24)
+Box.test(ima1$residuals, lag = 48)
+```
+
+```{r}
+Box.test(ima1$residuals, lag = 1, type = c("Ljung-Box"))
+Box.test(ima1$residuals, lag = 6, type = c("Ljung-Box"))
+Box.test(ima1$residuals, lag = 12, type = c("Ljung-Box"))
+Box.test(ima1$residuals, lag = 24, type = c("Ljung-Box"))
+Box.test(ima1$residuals, lag = 48, type = c("Ljung-Box"))
+```
+
+Gecikmelerin 1,6,12,24,48 bununla birlikte Box-Pierce ve Ljung–Box testlerine göre tüm p-value'lar 0.05'ten büyüktür. H_0 reddedilemez. Artıklar bağımsız olarak dağılır.
+
+####Öngörümleme 
+```{r}
+forecast(ima1, h=12)
+```
+Kasım 2020 için öngörülen ortalama klorofil seviyesi %80 güvenle yaklaşık 0.43 ile 0.59 arasında 0.51 mgL^(-1)'dir. %95 güvenle 0.39 ile 0.64 arasında 0.51 mgL^(-1)'dir.
+```{r}
+plot(forecast(ima1, h=12))
+```
+
+```{r}
+predict(ima1, n.ahead = 12)
+```
+
+```{r}
+ima1_acc<-accuracy(forecast(ima1, h=12))
+```
+
+
+
+
+###ARIMA(2,1,2)
+
+```{r}
+arima212
+```
+Modelimiz çevrilebilir ve durağandır.
+
+```{r}
+coeftest(arima212)
+```
+
+
+####Artık analizi
+
+
+```{r}
+par(mfrow=c(1,2))
+hist(arima212$residuals, main = "Artıkların histogram grafiği", xlab = "ARIMA(2,1,2) modeline ait artıklar")
+qqnorm(arima212$residuals)
+```
+-Grafiğe baktığımızda artıkların normal dağıldığı görülmektedir yinede test edilmelidir.
+
+H_0: Artıklar normal dağılır.
+H_1: artıklar normal dağılmaz.
+```{r}
+shapiro.test(arima212$residuals)
+```
+0.9581>0.05 olduğu için H_0 reddedilemez. Artıklar normal dağılır.
+
+```{r}
+checkresiduals(arima212$residuals)
+```
+
+```{r}
+tsdiag(arima212)
+```
+-İlk grafiğe baktığımızda standartlaştırılmış artıkların rassal bir sürece sahip olduğu söyleyebiliriz yinede test yapılmalıdır.
+
+-İkinci grafiğe baktığımızda artıkların ototkorelasyona sahip olmadığını söyleyebiliriz.
+
+-Üçüncü garfiğe baktığımızda p-value'ların yüksek değerlere sahip olduğunu söyleyebiliriz bu durum modelimize güvenimizi artırır.
+
+
+Box-Pierce (ve ya Ljung–Box) testi;
+H_0: Artıklar bağımsız olarak dağılır.
+H_1: Artıklar bağımsız olarak dağılmaz.
+
+```{r}
+Box.test(arima212$residuals, lag = 1)
+Box.test(arima212$residuals, lag = 6)
+Box.test(arima212$residuals, lag = 12)
+Box.test(arima212$residuals, lag = 24)
+Box.test(arima212$residuals, lag = 48)
+```
+
+```{r}
+Box.test(arima212$residuals, lag = 1, type = c("Ljung-Box"))
+Box.test(arima212$residuals, lag = 6, type = c("Ljung-Box"))
+Box.test(arima212$residuals, lag = 12, type = c("Ljung-Box"))
+Box.test(arima212$residuals, lag = 24, type = c("Ljung-Box"))
+Box.test(arima212$residuals, lag = 48, type = c("Ljung-Box"))
+```
+
+Gecikmelerin 1,6,12,24,48 bununla birlikte Box-Pierce ve Ljung–Box testlerine göre tüm p-value'lar 0.05'ten büyüktür. H_0 reddedilemez. Artıklar bağımsız olarak dağılır.
+
+####Öngörümleme 
+```{r}
+forecast(arima212, h=12)
+```
+Kasım 2020 için öngörülen ortalama klorofil seviyesi %80 güvenle yaklaşık 0.43 ile 0.58 arasında 0.51 mgL^(-1)'dir. %95 güvenle 0.39 ile 0.62 arasında 0.51 mgL^(-1)'dir.
+```{r}
+plot(forecast(arima212, h=12))
+```
+
+```{r}
+predict(arima212, n.ahead = 12)
+```
+
+```{r}
+(arima212_acc<-accuracy(forecast(arima212, h=12)))
+```
+
+
+#Karar
+```{r}
+(acc<-rbind(ima1_acc, arima212_acc))
+```
+ARIMA(2,1,2) modeli hem bilgi kriterlerine göre hemde p-value değerlerin yüksekliği nedeniyle daha güvenilirdir.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

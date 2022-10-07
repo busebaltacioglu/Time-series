@@ -1,0 +1,564 @@
+---
+title: "DSM 5012 Uygulamalı Zaman Serisi Analizi"
+subtitle: "Proje ~ 2"
+author: 
+        - "Buse Baltacıoğlu" 
+        - "Yunus Sur"
+        
+date: "24 06 2021"
+output:
+  ioslides_presentation: default
+  beamer_presentation:
+    theme: AnnArbor
+fontsize: 8pt
+---
+
+```{r setup, include=FALSE}
+library(forecast)
+library(tinytex)
+library(dplyr)
+library(htmltools)
+library(tidyverse)
+library(tseries)
+library(fpp2)
+library(gganimate)
+library(lmtest)
+library(readxl)
+knitr::opts_chunk$set(echo = T)
+```
+
+```{r warning=FALSE, include=FALSE}
+df <- read_excel("C:/Users/Buse/OneDrive/Masaüstü/Git/Time-series/uretim20172021.xlsx", 
+     col_types = c("date", "numeric"))
+```
+
+------------------------------------------------------------------------
+
+**Veri seti**
+
+<hr>
+
+Veri setimiz aylık olarak Haziran 2017 ile Nisan 2021 arasında güneş enerjisiyle elde edilmiş elektrik miktarlarını içermektedir.
+
+<br>
+
+![](gunes_paneli.gif)
+
+------------------------------------------------------------------------
+
+**Tanımlayıcı İstatistikler**
+
+<hr>
+
+```{r echo=TRUE}
+summary(df$Gunes)
+sd(df$Gunes)
+```
+
+-   Aylık güneş enerjisiyle elde edilen elektrik miktarı 242795 MW ile 1256838 MW arasında 706462 ortalamayla 299013.1 MW standart sapmaya sahiptir.
+
+```{r include=FALSE}
+df_ts<-ts(data = df$Gunes,
+       start = c(2017,06),
+       end = c(2021,04),
+       frequency = 12)
+```
+
+------------------------------------------------------------------------
+
+**Zaman Serisi Analizi**
+
+<hr>
+
+```{r time, fig.height=3, fig.width=7, message=FALSE, warning=FALSE, include=FALSE}
+ggplot(df, 
+       aes(x = Tarih, y=Gunes))+
+  geom_line() +
+  xlab("Aylar")+
+  ylab("Elektrik miktarı")+
+  scale_color_viridis_d() +
+  labs(x = "Aylar", y = "Elektrik Miktarı") +
+  theme(legend.position = "top")+ 
+  geom_point(aes(group = seq_along(Tarih))) +
+  transition_reveal(Tarih) +
+  theme_minimal()
+```
+
+```{r output1, ref.label="time", echo=FALSE, cache=TRUE, fig.height = 2.8, fig.width=3.5}
+```
+
+Zaman serisi grafiğine baktığımızda;
+
+-   Trend bileşeni ve bununla birlikte mevsimsel bileşen içerdiği görülmektedir. Zaman serisindeki rastgele dalgalanmalar zaman içinde sabit gibi görünüyor, veriyi toplamsal model temsil edebilir.
+
+------------------------------------------------------------------------
+
+**Zaman Serisinin Bileşenleri**
+
+<hr>
+
+```{r echo=FALSE, out.width="600px"}
+ggseasonplot(df_ts, year.labels=TRUE) +
+ylab("Klorofil Seviyesi") +
+xlab("Aylık") +
+ggtitle("Seasonal Plot: Klorofil Seviyesi")
+```
+
+-   Bu grafiktende anlaşılacağı gibi güneş enerjisinden elde edilen elektrik miktarı mevsimsel bileşen içermektedir.
+
+------------------------------------------------------------------------
+
+**Zaman Serisinin Bileşenleri**
+
+<hr>
+
+```{r include=FALSE}
+df_decomp<-decompose(df_ts)
+df_decomp$seasonal
+df_decomp$trend
+df_decomp$random
+```
+
+```{r echo=FALSE, out.width="700px"}
+plot(df_decomp, xlab="Aylar")
+```
+
+## HoltWinters Düzeltme Yöntemi
+
+<hr>
+
+```{r include=FALSE, out.width="220px"}
+(df_bes<-HoltWinters(df_ts))
+```
+
+-   Zaman serimizde hem trend hem de mevsimsellik bulunduğu için HoltWinters düzeltme yöntemi kullanımalıdır.
+
+-   Tahmini alpha, beta ve gamma değerleri sırasıyla 0.25, 0.11 ve 0.69'dur. Alpha 0.25 değeri düşüktür, bu da daha uzak geçmişteki bazı gözlemlere dayandığını gösterir.
+
+-   Beta değeri 0.11'dir, bu da trend bileşeninin b eğimi tahmininin zaman serilerinde başlangıç değerine yakın olarak ayarlandığını gösterir.
+
+-   Aksine, gamma değeri 0.69, bu da mevsimsel bileşenin mevcut zaman noktasındaki tahmininin son gözlemlere dayandığını gösterir.
+
+------------------------------------------------------------------------
+
+```{r out.width="200px"}
+(df_forecasts<-forecast(df_bes, h=12))
+```
+
+------------------------------------------------------------------------
+
+```{r out.width="300px"}
+plot(df_forecasts)
+```
+
+06.2017-04.2021 tahminlerini kullanarak 12 aylık ortalama güneş enerjisinden elde edilen elektrik miktarının tahminini yaptığımızda;
+
+Örneğin; Mayıs 2021 için öngörülen ortalama elektrik miktarı %95 güvenle yaklaşık 955589.7 MW ile 1344978.6 MW arasında 1150284.2 MW'dır.
+
+```{r include=FALSE}
+(bes_acc<-accuracy(forecast(df_bes, h=12)))
+```
+
+---
+
+ _ARIMA(p,d,q)\*SARIMA(P,D,Q)[12] tanımlama_
+
+<hr>
+
+```{r echo=FALSE, out.width="420px"}
+par(mfrow=c(1,3))
+plot.ts(df_ts)
+acf(df_ts, lag.max = 50)
+pacf(df_ts, lag.max = 50)
+```
+
+-   Orijinal değerlerin otokorelasyon grafiğine baktığımızda zaman serimizin durağan olmadığını görülmektedir.
+
+-   Orijinal değerlerin kısmi otokorelasyon grafiğine baktığımızda 2. geçikmeden sonra cutoff olduğu görülmektedir.
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, out.width="380px"}
+df_diff1<-diff(df_ts, differences = 1)
+par(mfrow=c(1,3))
+plot.ts(df_diff1)
+acf(df_diff1, lag.max = 50)
+pacf(df_diff1, lag.max = 50)
+```
+
+-   Birinci dereceden farkı alınmış verilerin ortalamasının sıfır civarında olduğu görülmektedir.
+
+-   Birinci dereceden fark alınmış verilerin otokorelasyonun anlamlı olduğunu ve durağanlaşmadığını söyleyebiliriz.
+
+-   Birinci dereceden fark alınmış verilerin normal kısmına baktığımızda hızlıca azalma ya da ani düşüş görülmemektedir.
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, out.width="360px"}
+df_diff12<-diff(df_ts, differences = 12)
+par(mfrow=c(1,3))
+plot.ts(df_diff12)
+acf(df_diff12, lag.max = 50)
+pacf(df_diff12, lag.max = 50)
+```
+
+-   Birinci dereceden mevsimsel farkı alınmış verilerin ortalamasının sıfır civarında, sabit varyanslı olduğunu ve orijinal verilerden daha az otokorelasyona sahip olduğu görülmektedir.
+
+-   Birinci dereceden mevsimsel fark alınmış verilerin normal kısmı hızlıca azalmış, mevsimsel kısmındaki değerlerde anlamlı otokorelasyon bulunmamaktadır.
+
+-   Birinci dereceden mevsimsel fark alındığında 2. lagtan sonra cut of olmuş ve zaman serimiz durağanlaşmıştır.
+
+------------------------------------------------------------------------
+
+*Augmented Dickey-Fuller testine göre;*
+
+$H_{0}$: Seri durağan değildir.
+
+$H_{1}$: Seri durağandır.
+
+```{r include=FALSE}
+adf.test(df_ts)
+adf.test(df_diff1)
+adf.test(df_diff12)
+```
+
+-   Orijinal seri için p-value değeri 0.016 çıkmıştır. Bu değer 0.05'ten küçük olduğu için $H_{0}$ reddedilir. Orijinal seri durağandır.
+
+-   Birinci dereceden fark alınmış seri için p-value değeri 0.019 çıkmıştır. Bu değer 0.05'ten küçük olduğu için $H_{0}$ reddedilir. 1. dereceden farkı alınmış seri durağandır.
+
+-   Birinci dereceden mevsimsel fark alınmış seri için p-value değeri 0.01 çıkmıştır. Bu değer 0.05'ten küçük olduğu için $H_{0}$ reddedilir. 1. dereceden mevsimsel farkı alınmış seri durağandır.
+
+------------------------------------------------------------------------
+
+*Phillips--Perron birim kök testine göre;*
+
+$H_{0}$: Seri durağan değildir.
+
+$H_{1}$: Seri durağandır.
+
+```{r include=FALSE}
+pp.test(df_ts)
+pp.test(df_diff1)
+pp.test(df_diff12)
+```
+
+-   Orijinal seri için p-value değeri 0.208 çıkmıştır. Bu değer 0.05'ten büyük olduğu için $H_{0}$ reddedilemez. Orijinal seri durağan değildir.
+
+-   Birinci dereceden fark alınmış seri için p-value değeri 0.016 çıkmıştır. Bu değer 0.05'ten küçük olduğu için $H_{0}$ reddedilir. 1. dereceden farkı alınmış seri durağandır.
+
+-   Birinci dereceden mevsimsel fark alınmış seri için p-value değeri 0.01 çıkmıştır. Bu değer 0.05'ten küçük olduğu için $H_{0}$ reddedilir. 1. dereceden mevsimsel farkı alınmış seri durağandır.
+
+------------------------------------------------------------------------
+
+*Kwiatkowski-Phillips-Schmidt-Shin göre;*
+
+$H_{0}$: Seri durağandır.
+
+$H_{1}$: Seri durağan değildir.
+
+```{r include=FALSE}
+kpss.test(df_ts, null = "Trend")
+kpss.test(df_diff1, null = "Trend")
+kpss.test(df_diff12, null = "Trend")
+```
+
+-   Orijinal seri için p-value değeri 0.1 çıkmıştır. Bu değer 0.05'ten büyük olduğu için $H_{0}$ red edilemez. Orijinal seri durağandır.
+
+-   Birinci dereceden fark alınmış seri için p-value değeri 0.1 çıkmıştır. Bu değer 0.05'ten küçük olduğu için $H_{0}$ red edilemez. 1. dereceden farkı alınmış seri durağandır.
+
+-   Birinci dereceden mevsimsel fark alınmış seri için p-value değeri 0.096 çıkmıştır. Bu değer 0.05'ten büyük olduğu için $H_{0}$ red edilemez. 1. dereceden mevsimsel farkı alınmış seri durağandır.
+
+---
+
+_ARIMA(2,0,0)\*SARIMA(1,1,0)[12]_
+
+<hr>
+
+```{r include=FALSE}
+model<-arima(df_ts,
+             order = c(2,0,0),
+             seasonal = list(order = c(1,1,0),
+                             period = 12))
+```
+
+```{r}
+coeftest(model)
+```
+
+------------------------------------------------------------------------
+
+**Artık analizi**
+
+<hr>
+
+```{r echo=FALSE, out.width="500px"}
+par(mfrow=c(1,2))
+hist(model$residuals, main = "Artıkların histogram grafiği", xlab = "ARIMA(2,0,0)*SARIMA(1,1,0)[12] modeline ait artıklar")
+qqnorm(model$residuals)
+```
+
+-   Grafiğe baktığımızda artıkların normal dağıldığı görülmektedir yinede test edilmelidir.
+
+------------------------------------------------------------------------
+
+*Shapiro testine göre;*
+
+<br>
+
+$H_{0}$: Artıklar normal dağılır.
+
+$H_{1}$: Artıklar normal dağılmaz.
+
+```{r include=FALSE}
+shapiro.test(model$residuals)
+```
+
+-   0.07938\>0.05 olduğu için $H_{0}$ reddedilemez. Artıklar normal dağılır.
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, warning=FALSE, out.width="700px"}
+checkresiduals(model$residuals)
+```
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, out.width="500px"}
+tsdiag(model)
+```
+
+-   İlk grafiğe baktığımızda standartlaştırılmış artıkların rassal bir sürece sahip olduğu söyleyebiliriz yinede test yapılmalıdır.
+
+-   İkinci grafiğe baktığımızda artıkların ototkorelasyona sahip olmadığını söyleyebiliriz.
+
+-   Üçüncü garfiğe baktığımızda p-value'ların giderek azaldığını ve daha sonra tekrar arttığını söyleyebiliriz.
+
+------------------------------------------------------------------------
+
+*Box-Pierce testi;*
+
+$H_{0}$: Artıklar otokorelasyona sahip değildir.
+
+$H_{1}$: Artıklar otokorelasyona sahiptir.
+
+```{r include=FALSE}
+Box.test(model$residuals, lag = 1)
+Box.test(model$residuals, lag = 6)
+Box.test(model$residuals, lag = 12)
+Box.test(model$residuals, lag = 24)
+```
+
+Box.teste göre;
+
+-   lag = 1'in p-value = 0.9544
+
+-   lag = 6'nın p-value = 0.1087
+
+-   lag = 12'nin p-value = 0.2476
+
+-   lag = 24'ün p-value = 0.0.3838
+
+------------------------------------------------------------------------
+
+*Ljung-Boxa göre;*
+
+$H_{0}$: Artıklar otokorelasyona sahip değildir.
+
+$H_{1}$: Artıklar otokorelasyona sahiptir.
+
+```{r include=FALSE}
+Box.test(model$residuals, lag = 1, type = c("Ljung-Box"))
+Box.test(model$residuals, lag = 6, type = c("Ljung-Box"))
+Box.test(model$residuals, lag = 12, type = c("Ljung-Box"))
+Box.test(model$residuals, lag = 24, type = c("Ljung-Box"))
+```
+
+-   lag = 1'in p-value = 0.9529
+
+-   lag = 6'nın p-value = 0.0638
+
+-   lag = 12'nin p-value = 0.1168
+
+-   lag = 24'ün p-value = 0.05073
+
+Gecikmelerin 1, 6, 12, 24 bununla birlikte Box-Pierce ve Ljung--Box testlerine göre tüm p-value'lar 0.05'ten büyüktür. $H_{0}$ reddedilemez. Artıklar otokorelasyona sahip değildir.
+
+------------------------------------------------------------------------
+
+**Öngörümleme**
+
+<hr>
+
+```{r include=FALSE}
+predict(model, n.ahead = 12)
+```
+
+```{r echo=FALSE, out.width="500px"}
+plot(forecast(model, h=12))
+```
+
+Örneğin; Mayıs 2021 için öngörülen ortalama elektrik miktarı %95 güvenle yaklaşık 966647.8 MW ile 1314376.7 MW arasında 1140512.3 MW'dır.
+
+```{r include=FALSE}
+model_acc<-accuracy(forecast(model, h=12))
+```
+
+---
+
+_ARIMA(3,0,0)\*SARIMA(1,1,0)[12]_
+
+<hr>
+
+```{r include=FALSE}
+model1<-arima(df_ts,
+             order = c(3,0,0),
+             seasonal = list(order = c(1,1,0),
+                             period = 12))
+```
+
+```{r}
+coeftest(model1)
+```
+
+------------------------------------------------------------------------
+
+**Artık analizi**
+
+<hr>
+
+```{r echo=FALSE, out.width="500px"}
+par(mfrow=c(1,2))
+hist(model1$residuals, main = "Artıkların histogram grafiği", xlab = "ARIMA(3,0,0)*SARIMA(1,1,0)[12] modeline ait artıklar")
+qqnorm(model1$residuals)
+```
+
+-   Grafiğe baktığımızda artıkların normal dağıldığı görülmektedir yinede test edilmelidir.
+
+------------------------------------------------------------------------
+
+*Shapiro testine göre;*
+
+<br>
+
+$H_{0}$: Artıklar normal dağılır.
+
+$H_{1}$: Artıklar normal dağılmaz.
+
+```{r include=FALSE}
+shapiro.test(model1$residuals)
+```
+
+- 0.1349>0.05 olduğu için $H_{0}$ reddedilemez. Artıklar normal dağılır.
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, warning=FALSE, out.width="700px"}
+checkresiduals(model1$residuals)
+```
+
+------------------------------------------------------------------------
+
+```{r echo=FALSE, out.width="500px"}
+tsdiag(model1)
+```
+
+-   İlk grafiğe baktığımızda standartlaştırılmış artıkların rassal bir sürece sahip olduğu söyleyebiliriz yinede test yapılmalıdır.
+
+-   İkinci grafiğe baktığımızda artıkların ototkorelasyona sahip olmadığını söyleyebiliriz.
+
+-   Üçüncü garfiğe baktığımızda p-value'ların giderek yavaşça azaldığını ve daha sonra tekrar arttığını söyleyebiliriz.
+
+------------------------------------------------------------------------
+
+*Box-Pierce testi;*
+
+$H_{0}$: Artıklar otokorelasyona sahip değildir.
+
+$H_{1}$: Artıklar otokorelasyona sahiptir.
+
+```{r include=FALSE}
+Box.test(model1$residuals, lag = 1)
+Box.test(model1$residuals, lag = 6)
+Box.test(model1$residuals, lag = 12)
+Box.test(model1$residuals, lag = 24)
+```
+
+Box.teste göre;
+
+-   lag = 1'in p-value = 0.9445
+
+-   lag = 6'nın p-value = 0.5094
+
+-   lag = 12'nin p-value = 0.601
+
+-   lag = 24'ün p-value = 0.8891
+
+------------------------------------------------------------------------
+
+*Ljung-Boxa göre;*
+
+$H_{0}$: Artıklar otokorelasyona sahip değildir.
+
+$H_{1}$: Artıklar otokorelasyona sahiptir.
+
+-   lag = 1'in p-value = 0.9427
+
+-   lag = 6'nın p-value = 0.4104
+
+-   lag = 12'nin p-value = 0.3848
+
+-   lag = 24'ün p-value = 0.5004
+
+```{r include=FALSE}
+Box.test(model1$residuals, lag = 1, type = c("Ljung-Box"))
+Box.test(model1$residuals, lag = 6, type = c("Ljung-Box"))
+Box.test(model1$residuals, lag = 12, type = c("Ljung-Box"))
+Box.test(model1$residuals, lag = 24, type = c("Ljung-Box"))
+```
+
+Gecikmelerin 1, 6, 12, 24 bununla birlikte Box-Pierce ve Ljung--Box testlerine göre tüm p-value'lar 0.05'ten büyüktür. $H_{0}$ reddedilemez. Artıklar otokorelasyona sahip değildir..
+
+------------------------------------------------------------------------
+
+**Öngörümleme**
+
+<hr>
+
+```{r echo=FALSE, out.width="400px"}
+plot(forecast(model1, h=12))
+```
+
+Örneğin; Mayıs 2021 için öngörülen ortalama elektrik miktarı %95 güvenle yaklaşık 928830.89 MW ile 1248807.9 MW arasında 1088819.4 MW'dır.
+
+```{r include=FALSE}
+predict(model1, n.ahead = 12)
+```
+
+```{r include=FALSE}
+
+model1_acc<-accuracy(forecast(model1, h=12))
+```
+
+------------------------------------------------------------------------
+
+**Karar**
+
+<hr>
+
+<br>
+
+```{r include=FALSE, out.width="200px"}
+acc<-rbind(bes_acc,model_acc, model1_acc)
+acc
+```
+
+![](mmm.png)
+
+<br>
+
+ARIMA(3,0,0)\*SARIMA(1,1,0)[12] modeli hem bilgi kriterlerine göre hemde p-value değerlerin yüksekliği nedeniyle daha güvenilirdir.
+
+# *Bizi Dinlediğiniz İçin Teşekkürler ☻*
+
+![](sun.gif)
+
